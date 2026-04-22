@@ -11,6 +11,32 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 /**
+ * Sadece üretim verilerini siler: partiler, fırınlar, stok, planlar, sıvı çamur.
+ * Hammadde, ürün, renk reçetesi, ayarlar ve fırın ekipmanları KORUNUR.
+ * Hammadde stok miktarları yalnızca satın almalardan yeniden hesaplanır.
+ */
+export async function resetProductionData(): Promise<void> {
+  const database = await getDatabase();
+  await database.withTransactionAsync(async () => {
+    await database.execAsync(`DELETE FROM kiln_firing_items;`);
+    await database.execAsync(`DELETE FROM kiln_firings;`);
+    await database.execAsync(`DELETE FROM stock;`);
+    await database.execAsync(`DELETE FROM production_plans;`);
+    await database.execAsync(`DELETE FROM production_items;`);
+    await database.execAsync(`DELETE FROM production_batches;`);
+    await database.execAsync(`DELETE FROM liquid_clay_batches;`);
+    // Hammadde stok miktarlarını sadece satın almalar üzerinden yeniden hesapla
+    await database.execAsync(`
+      UPDATE materials
+      SET stock_quantity = COALESCE(
+        (SELECT SUM(p.quantity) FROM purchases p WHERE p.material_id = materials.id),
+        0
+      )
+    `);
+  });
+}
+
+/**
  * Tüm üretim/stok/hammadde verilerini siler, şema ve uygulama ayarları korunur.
  */
 export async function resetAllData(): Promise<void> {

@@ -178,8 +178,8 @@ export default function CalendarScreen() {
             onPress: async () => {
               await unmarkPlanCompleted(plan.id);
 
-              // Geri alma sonrası: DB'den gerçek aşamayı oku (plan.current_stage stale olabilir)
-              const completedQty = await getCompletedQuantityForItem(plan.production_item_id);
+              // Geri alma sonrası: sadece bu aşamadaki tamamlananları say
+              const completedQty = await getCompletedQuantityForItem(plan.production_item_id, plan.stage);
               if (completedQty < plan.total_quantity) {
                 const actualStage = await getProductionItemStage(plan.production_item_id);
                 const planStageIdx    = ALL_STAGES.indexOf(plan.stage);
@@ -212,15 +212,19 @@ export default function CalendarScreen() {
           onPress: async () => {
             await markPlanCompleted(plan.id);
 
-            // Bu kalem için tamamlanan toplam adedi kontrol et
-            const completedQty = await getCompletedQuantityForItem(plan.production_item_id);
+            // Bu aşamadaki tamamlanan toplam adedi kontrol et (önceki aşamalar sayılmasın)
+            const completedQty = await getCompletedQuantityForItem(plan.production_item_id, plan.stage);
             if (completedQty >= plan.total_quantity) {
-              // Tüm adetler tamamlandı → her zaman bir sonraki aşamaya geç
-              // (activeStages filtresi KULLANMA — bisküvi/sır gibi ara aşamalar atlanmasın)
-              const currentIdx = ALL_STAGES.indexOf(plan.current_stage);
-              const nextStage = ALL_STAGES[currentIdx + 1] ?? null;
-              if (nextStage) {
-                await updateProductionItemStage(plan.production_item_id, nextStage);
+              // Tüm adetler tamamlandı → bir sonraki aşamaya geç
+              // Güvenlik: kalem zaten bir fırın-bekleme aşamasındaysa takvimden ilerletme
+              // (fırın sekmes yönetir), sadece planın oluşturulduğu aşamadan ilerle
+              const advanceFrom = plan.current_stage;
+              if (!KILN_STAGES.includes(advanceFrom)) {
+                const currentIdx = ALL_STAGES.indexOf(advanceFrom);
+                const nextStage = ALL_STAGES[currentIdx + 1] ?? null;
+                if (nextStage) {
+                  await updateProductionItemStage(plan.production_item_id, nextStage);
+                }
               }
             }
 

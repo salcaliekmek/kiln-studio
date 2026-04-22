@@ -12,7 +12,7 @@ import {
   getProfile, saveProfile, AppProfile, PROFILE_DEFAULTS,
   getElectricityPrices, setElectricityPrice, deleteElectricityPrice,
 } from '../../src/services/settings';
-import { resetAllData } from '../../src/db/database';
+import { resetAllData, resetProductionData } from '../../src/db/database';
 import { getKilns, addKiln, deleteKiln } from '../../src/services/kilns';
 import { ElectricityPrice, Kiln, ProductionStage } from '../../src/types';
 
@@ -354,7 +354,43 @@ export default function ProfileScreen() {
 
           {/* Tehlikeli Alan */}
           <Text style={[styles.sectionTitle, { marginTop: Spacing.xl, color: Colors.error }]}>Tehlikeli Alan</Text>
-          <Card variant="outlined" style={{ borderColor: Colors.error + '40', gap: Spacing.sm }}>
+
+          {/* Üretim Sıfırla */}
+          <Card variant="outlined" style={{ borderColor: Colors.error + '30', gap: Spacing.sm }}>
+            <Text style={{ ...Typography.bodySmall, color: Colors.textSecondary }}>
+              Üretim partileri, fırın pişirimleri, stok, takvim planları ve sıvı çamur partileri silinir. Hammadde stok miktarları yalnızca satın almalar üzerinden yeniden hesaplanır. Hammaddeler, ürünler ve renk reçeteleri korunur.
+            </Text>
+            <TouchableOpacity
+              style={styles.resetBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Üretim Verilerini Sıfırla',
+                  'Tüm üretim partileri, stok ve pişirim kayıtları silinecek. Hammadde ve ürün tanımları korunacak. Hammadde stokları satın almalardan yeniden hesaplanacak. Emin misin?',
+                  [
+                    { text: 'İptal', style: 'cancel' },
+                    {
+                      text: 'Evet, Sıfırla',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await resetProductionData();
+                          Alert.alert('Tamamlandı', 'Üretim verileri silindi, hammadde stokları güncellendi.');
+                        } catch (e) {
+                          Alert.alert('Hata', 'Veriler silinemedi.');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="refresh-outline" size={18} color={Colors.error} />
+              <Text style={styles.resetBtnText}>Üretim Verilerini Sıfırla</Text>
+            </TouchableOpacity>
+          </Card>
+
+          {/* Tümünü Sıfırla */}
+          <Card variant="outlined" style={{ borderColor: Colors.error + '40', gap: Spacing.sm, marginTop: Spacing.sm }}>
             <Text style={{ ...Typography.bodySmall, color: Colors.textSecondary }}>
               Tüm hammadde, ürün, üretim, stok ve pişirim verileri silinir. Uygulama ayarları (stüdyo adı, aşamalar vb.) korunur. Bu işlem geri alınamaz.
             </Text>

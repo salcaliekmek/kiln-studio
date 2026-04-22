@@ -119,14 +119,19 @@ export async function unmarkPlanCompleted(id: number): Promise<void> {
   );
 }
 
-/** Bir kalem için tamamlanan toplam adet (completed_at dolu olanlar) */
-export async function getCompletedQuantityForItem(productionItemId: number): Promise<number> {
+/** Bir kalem için belirli aşamadaki tamamlanan toplam adet.
+ *  Stage filtresi olmadan sayarsa önceki aşamaların planları da dahil olur ve
+ *  yanlış erken aşama geçişine neden olur. */
+export async function getCompletedQuantityForItem(
+  productionItemId: number,
+  stage: ProductionStage,
+): Promise<number> {
   const db = await getDatabase();
   const row = await db.getFirstAsync<{ total: number }>(
     `SELECT COALESCE(SUM(quantity), 0) as total
      FROM production_plans
-     WHERE production_item_id = ? AND completed_at IS NOT NULL`,
-    [productionItemId]
+     WHERE production_item_id = ? AND stage = ? AND completed_at IS NOT NULL`,
+    [productionItemId, stage]
   );
   return row?.total ?? 0;
 }
