@@ -43,13 +43,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="materials"
-        options={{
-          title: 'Hammadde',
-          tabBarIcon: ({ focused }) => <TabIcon name="layers" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
         name="production"
         options={{
           title: 'Üretim',
@@ -64,6 +57,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="calendar"
+        options={{
+          title: 'Takvim',
+          tabBarIcon: ({ focused }) => <TabIcon name="calendar" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="stock"
         options={{
           title: 'Stok',
@@ -71,6 +71,7 @@ export default function TabLayout() {
         }}
       />
       {/* Gizli ekranlar – tab bar'da görünmez, navigation ile erişilir */}
+      <Tabs.Screen name="materials" options={{ href: null }} />
       <Tabs.Screen name="products" options={{ href: null }} />
       <Tabs.Screen name="colors" options={{ href: null }} />
       <Tabs.Screen name="clay" options={{ href: null }} />

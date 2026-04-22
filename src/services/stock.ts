@@ -1,25 +1,29 @@
 import { getDatabase } from '../db/database';
 import { StockEntry, StockStage } from '../types';
 
+const BASE_SELECT = `
+  SELECT s.*, p.name as product_name, p.collection,
+         lcb.name as liquid_clay_batch_name
+  FROM stock s
+  JOIN products p ON p.id = s.product_id
+  LEFT JOIN liquid_clay_batches lcb ON lcb.id = s.liquid_clay_batch_id
+`;
+
 export async function getStock(): Promise<StockEntry[]> {
   const db = await getDatabase();
   return db.getAllAsync<StockEntry>(
-    `SELECT s.*, p.name as product_name, p.collection
-     FROM stock s
-     JOIN products p ON p.id = s.product_id
+    `${BASE_SELECT}
      WHERE s.quantity > 0
-     ORDER BY p.collection, p.name, s.stage`
+     ORDER BY p.collection, p.name, lcb.name, s.stage`
   );
 }
 
 export async function getStockByStage(stage: StockStage): Promise<StockEntry[]> {
   const db = await getDatabase();
   return db.getAllAsync<StockEntry>(
-    `SELECT s.*, p.name as product_name, p.collection
-     FROM stock s
-     JOIN products p ON p.id = s.product_id
+    `${BASE_SELECT}
      WHERE s.stage = ? AND s.quantity > 0
-     ORDER BY p.collection, p.name`,
+     ORDER BY p.collection, p.name, lcb.name`,
     [stage]
   );
 }
@@ -27,34 +31,33 @@ export async function getStockByStage(stage: StockStage): Promise<StockEntry[]> 
 export async function getStockByProduct(productId: number): Promise<StockEntry[]> {
   const db = await getDatabase();
   return db.getAllAsync<StockEntry>(
-    `SELECT s.*, p.name as product_name, p.collection
-     FROM stock s
-     JOIN products p ON p.id = s.product_id
+    `${BASE_SELECT}
      WHERE s.product_id = ?
-     ORDER BY s.stage`,
+     ORDER BY lcb.name, s.stage`,
     [productId]
   );
 }
 
-export async function adjustStock(productId: number, stage: StockStage, delta: number): Promise<void> {
+/** Manuel düzeltme — stok kaydı id'si üzerinden */
+export async function adjustStock(stockId: number, delta: number): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    `INSERT INTO stock (product_id, quantity, stage, updated_at)
-     VALUES (?, MAX(0, ?), ?, datetime('now','localtime'))
-     ON CONFLICT(product_id, stage) DO UPDATE SET
+    `UPDATE stock SET
        quantity   = MAX(0, quantity + ?),
-       updated_at = datetime('now','localtime')`,
-    [productId, delta, stage, delta]
+       updated_at = datetime('now','localtime')
+     WHERE id = ?`,
+    [delta, stockId]
   );
 }
 
+/** Manuel stok girişi (renksiz / 0 batch ile) */
 export async function setStock(productId: number, stage: StockStage, quantity: number): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    `INSERT INTO stock (product_id, quantity, stage, updated_at)
-     VALUES (?, ?, ?, datetime('now','localtime'))
-     ON CONFLICT(product_id, stage) DO UPDATE SET
-       quantity = excluded.quantity,
+    `INSERT INTO stock (product_id, liquid_clay_batch_id, quantity, stage, updated_at)
+     VALUES (?, 0, ?, ?, datetime('now','localtime'))
+     ON CONFLICT(product_id, stage, liquid_clay_batch_id) DO UPDATE SET
+       quantity   = excluded.quantity,
        updated_at = datetime('now','localtime')`,
     [productId, quantity, stage]
   );

@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, SectionList, TouchableOpacity,
   Modal, ScrollView, Alert, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
 import { Card } from '../../src/components/Card';
 import { Badge } from '../../src/components/Badge';
@@ -55,7 +56,7 @@ export default function StockScreen() {
     setProducts(prods);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const sections: Section[] = STAGES.map(stage => ({
     title: STAGE_LABELS[stage],
@@ -65,7 +66,7 @@ export default function StockScreen() {
 
   async function handleAdjust(delta: number) {
     if (!selectedEntry) return;
-    await adjustStock(selectedEntry.product_id, selectedEntry.stage, delta);
+    await adjustStock(selectedEntry.id, delta);
     setShowAdjust(false);
     setAdjustDelta('');
     load();
@@ -110,7 +111,7 @@ export default function StockScreen() {
       ) : (
         <SectionList
           sections={sections}
-          keyExtractor={item => `${item.product_id}-${item.stage}`}
+          keyExtractor={item => `${item.id}`}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
               <Badge label={section.title} color={STAGE_COLORS[section.stage]} />
@@ -130,8 +131,13 @@ export default function StockScreen() {
               setShowAdjust(true);
             }}>
               <View style={styles.stockRow}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.stockName}>{item.product_name}</Text>
+                  {item.liquid_clay_batch_id > 0 && (
+                    <Text style={styles.stockColor}>
+                      {item.liquid_clay_batch_name ?? `Çamur #${item.liquid_clay_batch_id}`}
+                    </Text>
+                  )}
                   <Text style={styles.stockCollection}>{item.collection}</Text>
                 </View>
                 <View style={styles.stockRight}>
@@ -393,6 +399,7 @@ const styles = StyleSheet.create({
   stockCard: {},
   stockRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   stockName: { ...Typography.body, fontWeight: '600', color: Colors.text },
+  stockColor: { ...Typography.caption, color: Colors.primary, fontWeight: '500' },
   stockCollection: { ...Typography.caption, color: Colors.textSecondary },
   stockRight: { alignItems: 'flex-end' },
   stockQty: { ...Typography.h2, color: Colors.text },

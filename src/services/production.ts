@@ -17,13 +17,12 @@ export async function getProductionBatches(): Promise<ProductionBatch[]> {
             WHEN 'bisque_done'   THEN 3
             WHEN 'glazing'       THEN 4
             WHEN 'glaze_firing'  THEN 5
-            WHEN 'glaze_done'    THEN 6
-            WHEN 'decal'         THEN 7
-            WHEN 'decal_firing'  THEN 8
-            WHEN 'sanding'       THEN 9
-            WHEN 'finished'      THEN 10
+            WHEN 'decal'         THEN 6
+            WHEN 'decal_firing'  THEN 7
+            WHEN 'sanding'       THEN 8
+            WHEN 'finished'      THEN 9
             ELSE 0 END
-          ) * 100.0 / (NULLIF(SUM(pi.quantity), 0) * 10.0),
+          ) * 100.0 / (NULLIF(SUM(pi.quantity), 0) * 9.0),
           0
         )
       ) as progress_pct
@@ -45,6 +44,14 @@ export async function getProductionBatch(id: number): Promise<ProductionBatch | 
   if (!batch) return null;
   batch.items = await getProductionItems(id);
   return batch;
+}
+
+export async function getProductionItemStage(itemId: number): Promise<ProductionStage | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ current_stage: ProductionStage }>(
+    'SELECT current_stage FROM production_items WHERE id = ?', [itemId]
+  );
+  return row?.current_stage ?? null;
 }
 
 export async function getProductionItems(batchId: number): Promise<ProductionItem[]> {
@@ -132,6 +139,62 @@ export async function addProductionBatch(
   return batchId;
 }
 
+/** Mevcut bir partiye yeni üretim kalemi ekler (sıvı çamur stokunu otomatik düşer). */
+export async function addProductionItemToBatch(
+  batchId: number,
+  item: { product_id: number; liquid_clay_batch_id?: number; glaze_material_id?: number; quantity: number }
+): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    // Döküm ağırlığını ağırlık profilinden al
+    let castingWeightGr: number | null = null;
+    const pw = await db.getFirstAsync<{ weight_gr: number }>(
+      `SELECT weight_gr FROM product_weights WHERE product_id = ? AND stage = 'casting'`,
+      [item.product_id]
+    );
+    if (pw?.weight_gr && pw.weight_gr > 0) {
+      castingWeightGr = pw.weight_gr;
+    } else {
+      const productRow = await db.getFirstAsync<{ casting_weight_gr: number | null }>(
+        'SELECT casting_weight_gr FROM products WHERE id = ?', [item.product_id]
+      );
+      if (productRow?.casting_weight_gr && productRow.casting_weight_gr > 0) {
+        castingWeightGr = productRow.casting_weight_gr;
+      }
+    }
+    const clay_used_quantity = castingWeightGr != null ? castingWeightGr * item.quantity : null;
+
+    // Sır maliyeti snapshot
+    let glazeCostPerUnit: number | null = null;
+    if (item.glaze_material_id) {
+      const glazeMat = await db.getFirstAsync<{ cost_per_unit: number }>(
+        'SELECT cost_per_unit FROM materials WHERE id = ?', [item.glaze_material_id]
+      );
+      glazeCostPerUnit = glazeMat?.cost_per_unit ?? null;
+    }
+
+    await db.runAsync(
+      `INSERT INTO production_items
+         (batch_id, product_id, liquid_clay_batch_id, clay_used_quantity,
+          glaze_material_id, glaze_cost_per_unit, quantity, current_stage)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'casting')`,
+      [
+        batchId,
+        item.product_id,
+        item.liquid_clay_batch_id ?? null,
+        clay_used_quantity,
+        item.glaze_material_id ?? null,
+        glazeCostPerUnit,
+        item.quantity,
+      ]
+    );
+    // Sıvı çamur stokunu düş
+    if (item.liquid_clay_batch_id && clay_used_quantity) {
+      await useLiquidClay(item.liquid_clay_batch_id, clay_used_quantity);
+    }
+  });
+}
+
 export async function updateProductionItemStage(itemId: number, stage: ProductionStage): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
@@ -139,19 +202,29 @@ export async function updateProductionItemStage(itemId: number, stage: Productio
     [stage, itemId]
   );
 
-  // Eğer finished ise stoka ekle
+  // Eğer finished ise: semi stoktan düş, finished stoka ekle
   if (stage === 'finished') {
     const item = await db.getFirstAsync<ProductionItem>(
       'SELECT * FROM production_items WHERE id = ?', [itemId]
     );
     if (item) {
+      const batchId = item.liquid_clay_batch_id ?? 0;
+      // Yarı mamül stoktan düş
       await db.runAsync(
-        `INSERT INTO stock (product_id, quantity, stage)
-         VALUES (?, ?, 'finished')
-         ON CONFLICT(product_id, stage) DO UPDATE SET
+        `UPDATE stock SET
+           quantity   = MAX(0, quantity - ?),
+           updated_at = datetime('now','localtime')
+         WHERE product_id = ? AND liquid_clay_batch_id = ? AND stage = 'semi'`,
+        [item.quantity, item.product_id, batchId]
+      );
+      // Satışa hazır stoka ekle
+      await db.runAsync(
+        `INSERT INTO stock (product_id, liquid_clay_batch_id, quantity, stage)
+         VALUES (?, ?, ?, 'finished')
+         ON CONFLICT(product_id, stage, liquid_clay_batch_id) DO UPDATE SET
            quantity = quantity + excluded.quantity,
            updated_at = datetime('now','localtime')`,
-        [item.product_id, item.quantity]
+        [item.product_id, batchId, item.quantity]
       );
     }
   }
@@ -162,42 +235,104 @@ export async function updateProductionItemStage(itemId: number, stage: Productio
       'SELECT * FROM production_items WHERE id = ?', [itemId]
     );
     if (item) {
+      const batchId = item.liquid_clay_batch_id ?? 0;
       await db.runAsync(
-        `INSERT INTO stock (product_id, quantity, stage)
-         VALUES (?, ?, 'bisque')
-         ON CONFLICT(product_id, stage) DO UPDATE SET
+        `INSERT INTO stock (product_id, liquid_clay_batch_id, quantity, stage)
+         VALUES (?, ?, ?, 'bisque')
+         ON CONFLICT(product_id, stage, liquid_clay_batch_id) DO UPDATE SET
            quantity = quantity + excluded.quantity,
            updated_at = datetime('now','localtime')`,
-        [item.product_id, item.quantity]
+        [item.product_id, batchId, item.quantity]
       );
     }
   }
 
-  // glaze_done → bisküvi stoktan düş, yarı mamül stoka ekle
-  if (stage === 'glaze_done') {
+  // decal → sır pişirimi bitti; bisküvi stoktan düş, yarı mamül stoka ekle
+  if (stage === 'decal') {
     const item = await db.getFirstAsync<ProductionItem>(
       'SELECT * FROM production_items WHERE id = ?', [itemId]
     );
     if (item) {
-      // Bisküvi stokunu azalt (sıfırın altına düşürme)
+      const batchId = item.liquid_clay_batch_id ?? 0;
       await db.runAsync(
         `UPDATE stock SET
            quantity   = MAX(0, quantity - ?),
            updated_at = datetime('now','localtime')
-         WHERE product_id = ? AND stage = 'bisque'`,
-        [item.quantity, item.product_id]
+         WHERE product_id = ? AND liquid_clay_batch_id = ? AND stage = 'bisque'`,
+        [item.quantity, item.product_id, batchId]
       );
-      // Yarı mamül stoka ekle
       await db.runAsync(
-        `INSERT INTO stock (product_id, quantity, stage)
-         VALUES (?, ?, 'semi')
-         ON CONFLICT(product_id, stage) DO UPDATE SET
+        `INSERT INTO stock (product_id, liquid_clay_batch_id, quantity, stage)
+         VALUES (?, ?, ?, 'semi')
+         ON CONFLICT(product_id, stage, liquid_clay_batch_id) DO UPDATE SET
            quantity   = quantity + excluded.quantity,
            updated_at = datetime('now','localtime')`,
-        [item.product_id, item.quantity]
+        [item.product_id, batchId, item.quantity]
       );
     }
   }
+}
+
+/** Bir üretim kaleminin aşamasını geri alır; stok değişikliklerini de tersine çevirir. */
+export async function revertProductionItemStage(
+  itemId: number,
+  fromStage: ProductionStage,
+  toStage: ProductionStage
+): Promise<void> {
+  const db = await getDatabase();
+  const item = await db.getFirstAsync<ProductionItem>(
+    'SELECT * FROM production_items WHERE id = ?', [itemId]
+  );
+  if (!item) return;
+
+  await db.withTransactionAsync(async () => {
+    const batchId = item.liquid_clay_batch_id ?? 0;
+    // Stok tersine çevirme
+    if (fromStage === 'finished') {
+      // Satışa hazır stoktan düş
+      await db.runAsync(
+        `UPDATE stock SET quantity = MAX(0, quantity - ?), updated_at = datetime('now','localtime')
+         WHERE product_id = ? AND liquid_clay_batch_id = ? AND stage = 'finished'`,
+        [item.quantity, item.product_id, batchId]
+      );
+      // Yarı mamül stoka geri ekle
+      await db.runAsync(
+        `INSERT INTO stock (product_id, liquid_clay_batch_id, quantity, stage)
+         VALUES (?, ?, ?, 'semi')
+         ON CONFLICT(product_id, stage, liquid_clay_batch_id) DO UPDATE SET
+           quantity   = quantity + excluded.quantity,
+           updated_at = datetime('now','localtime')`,
+        [item.product_id, batchId, item.quantity]
+      );
+    } else if (fromStage === 'bisque_done') {
+      await db.runAsync(
+        `UPDATE stock SET quantity = MAX(0, quantity - ?), updated_at = datetime('now','localtime')
+         WHERE product_id = ? AND liquid_clay_batch_id = ? AND stage = 'bisque'`,
+        [item.quantity, item.product_id, batchId]
+      );
+    } else if (fromStage === 'decal') {
+      // Sır pişirimi geri alındı: yarı mamülden düş, bisküvi stoka geri ekle
+      await db.runAsync(
+        `UPDATE stock SET quantity = MAX(0, quantity - ?), updated_at = datetime('now','localtime')
+         WHERE product_id = ? AND liquid_clay_batch_id = ? AND stage = 'semi'`,
+        [item.quantity, item.product_id, batchId]
+      );
+      await db.runAsync(
+        `INSERT INTO stock (product_id, liquid_clay_batch_id, quantity, stage)
+         VALUES (?, ?, ?, 'bisque')
+         ON CONFLICT(product_id, stage, liquid_clay_batch_id) DO UPDATE SET
+           quantity   = quantity + excluded.quantity,
+           updated_at = datetime('now','localtime')`,
+        [item.product_id, batchId, item.quantity]
+      );
+    }
+
+    // Aşamayı geri al
+    await db.runAsync(
+      'UPDATE production_items SET current_stage = ? WHERE id = ?',
+      [toStage, itemId]
+    );
+  });
 }
 
 export async function getActiveProductionItems(): Promise<ProductionItem[]> {
@@ -244,7 +379,7 @@ export interface ProductionCostLine {
 
 const STAGE_ORDER: ProductionStage[] = [
   'casting', 'drying', 'bisque', 'bisque_done',
-  'glazing', 'glaze_firing', 'glaze_done',
+  'glazing', 'glaze_firing',
   'decal', 'decal_firing', 'sanding', 'finished',
 ];
 
@@ -455,7 +590,7 @@ export async function getProductionItemCostLines(itemId: number): Promise<Produc
     }
   }
 
-  // 4. Glaze firing electricity — stage >= glaze_done (idx >= 6)
+  // 4. Glaze firing electricity — stage >= decal (idx >= 6)
   if (stageIdx >= 6) {
     const cost = await getItemFiringCost(db, itemId, item.product_id, item.quantity, 'glaze');
     if (cost !== null) {
@@ -468,8 +603,8 @@ export async function getProductionItemCostLines(itemId: number): Promise<Produc
     }
   }
 
-  // 5. Decal firing electricity — stage >= sanding (idx >= 9)
-  if (stageIdx >= 9) {
+  // 5. Decal firing electricity — stage >= sanding (idx >= 8)
+  if (stageIdx >= 8) {
     const cost = await getItemFiringCost(db, itemId, item.product_id, item.quantity, 'decal');
     if (cost !== null) {
       lines.push({

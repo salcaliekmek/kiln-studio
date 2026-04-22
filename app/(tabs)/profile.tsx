@@ -18,7 +18,7 @@ import { ElectricityPrice, Kiln, ProductionStage } from '../../src/types';
 
 const ALL_STAGES: ProductionStage[] = [
   'casting','drying','bisque','bisque_done',
-  'glazing','glaze_firing','glaze_done',
+  'glazing','glaze_firing',
   'decal','decal_firing','sanding','finished',
 ];
 

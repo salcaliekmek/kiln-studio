@@ -11,8 +11,8 @@ import { Card } from '../../src/components/Card';
 import { EmptyState } from '../../src/components/EmptyState';
 import { StageBadge, STAGE_LABELS } from '../../src/components/StageBadge';
 import {
-  getProductionBatches, addProductionBatch, getActiveProductionItems,
-  updateProductionItemStage, getProductionBatch, deleteProductionBatch,
+  getProductionBatches, addProductionBatch, addProductionItemToBatch, getActiveProductionItems,
+  updateProductionItemStage, revertProductionItemStage, getProductionBatch, deleteProductionBatch,
   updateProductionBatch, getProductionItemCostLines, ProductionCostLine,
 } from '../../src/services/production';
 import { getProducts } from '../../src/services/products';
@@ -23,7 +23,7 @@ import { ProductionBatch, ProductionItem, ProductionStage, Product, Material, Li
 
 const ALL_STAGES: ProductionStage[] = [
   'casting', 'drying', 'bisque', 'bisque_done',
-  'glazing', 'glaze_firing', 'glaze_done',
+  'glazing', 'glaze_firing',
   'decal', 'decal_firing', 'sanding', 'finished',
 ];
 
@@ -38,6 +38,12 @@ export default function ProductionScreen() {
   const [itemCostLines, setItemCostLines] = useState<Record<number, ProductionCostLine[]>>({});
   const [editBatchNotes, setEditBatchNotes] = useState('');
   const [editBatchDate, setEditBatchDate] = useState('');
+  // Mevcut partiye kalem ekleme
+  const [showBatchEditAddItem, setShowBatchEditAddItem] = useState(false);
+  const [batchEditProduct, setBatchEditProduct] = useState<Product | null>(null);
+  const [batchEditLiquidClay, setBatchEditLiquidClay] = useState<LiquidClayBatch | null>(null);
+  const [batchEditGlaze, setBatchEditGlaze] = useState<Material | null>(null);
+  const [batchEditQty, setBatchEditQty] = useState('1');
   const [products, setProducts] = useState<Product[]>([]);
   const [glazeMaterials, setGlazeMaterials] = useState<Material[]>([]);
   const [liquidClayBatches, setLiquidClayBatches] = useState<LiquidClayBatch[]>([]);
@@ -174,24 +180,37 @@ export default function ProductionScreen() {
   async function handleStageChange(item: ProductionItem) {
     const currentIndex = ALL_STAGES.indexOf(item.current_stage);
     const nextStages = ALL_STAGES.slice(currentIndex + 1).filter(s => activeStages.includes(s));
+    // Önceki aşama: currentIndex'in hemen öncesi (düzeltme amaçlı)
+    const prevStage = currentIndex > 0 ? ALL_STAGES[currentIndex - 1] : null;
+
+    const refreshBatch = async () => {
+      load();
+      if (showBatchDetail && selectedBatch) {
+        const updated = await getProductionBatch(selectedBatch.id);
+        setSelectedBatch(updated);
+        const updatedLines = await getProductionItemCostLines(item.id);
+        setItemCostLines(prev => ({ ...prev, [item.id]: updatedLines }));
+      }
+    };
 
     Alert.alert(
       'Aşama Güncelle',
       `"${item.product_name}" için yeni aşama seçin:`,
       [
         ...nextStages.slice(0, 5).map(stage => ({
-          text: STAGE_LABELS[stage],
+          text: `→ ${STAGE_LABELS[stage]}`,
           onPress: async () => {
             await updateProductionItemStage(item.id, stage);
-            load();
-            if (showBatchDetail && selectedBatch) {
-              const updated = await getProductionBatch(selectedBatch.id);
-              setSelectedBatch(updated);
-              const updatedLines = await getProductionItemCostLines(item.id);
-              setItemCostLines(prev => ({ ...prev, [item.id]: updatedLines }));
-            }
+            await refreshBatch();
           },
         })),
+        ...(prevStage ? [{
+          text: `← Geri: ${STAGE_LABELS[prevStage]}`,
+          onPress: async () => {
+            await revertProductionItemStage(item.id, item.current_stage, prevStage);
+            await refreshBatch();
+          },
+        }] : []),
         { text: 'İptal', style: 'cancel' },
       ]
     );
@@ -215,7 +234,80 @@ export default function ProductionScreen() {
     if (!selectedBatch) return;
     setEditBatchNotes(selectedBatch.notes ?? '');
     setEditBatchDate(selectedBatch.date_started);
+    setShowBatchEditAddItem(false);
+    setBatchEditProduct(null);
+    setBatchEditLiquidClay(null);
+    setBatchEditGlaze(null);
+    setBatchEditQty('1');
     setEditingBatch(true);
+  }
+
+  function showBatchEditProductPicker() {
+    if (products.length === 0) return Alert.alert('Uyarı', 'Henüz ürün tanımlanmamış');
+    Alert.alert('Ürün Seç', '', [
+      ...products.map(p => ({
+        text: `${p.name} (${p.collection})`,
+        onPress: () => setBatchEditProduct(p),
+      })),
+      { text: 'İptal', style: 'cancel' as const },
+    ]);
+  }
+
+  function showBatchEditLiquidClayPicker() {
+    const available = liquidClayBatches.filter(b => b.available_quantity > 0);
+    if (available.length === 0) return Alert.alert('Uyarı', 'Kullanılabilir sıvı çamur partisi yok');
+    Alert.alert('Sıvı Çamur Partisi', '', [
+      ...available.map(b => ({
+        text: `${b.name}  (${(b.available_quantity / 1000).toFixed(1)} kg)`,
+        onPress: () => setBatchEditLiquidClay(b),
+      })),
+      { text: 'İptal', style: 'cancel' as const },
+    ]);
+  }
+
+  function showBatchEditGlazePicker() {
+    Alert.alert('Sır Seçimi', '', [
+      { text: 'Sırsız / Sonra Seçilecek', onPress: () => setBatchEditGlaze(null) },
+      ...glazeMaterials.map(g => ({
+        text: `${g.name}  ₺${g.cost_per_unit}/${g.unit}`,
+        onPress: () => setBatchEditGlaze(g),
+      })),
+      { text: 'İptal', style: 'cancel' as const },
+    ]);
+  }
+
+  async function handleAddItemToBatch() {
+    if (!selectedBatch) return;
+    if (!batchEditProduct) return Alert.alert('Hata', 'Ürün seçin');
+    if (!batchEditLiquidClay) return Alert.alert('Hata', 'Sıvı çamur partisi seçin');
+    try {
+      await addProductionItemToBatch(selectedBatch.id, {
+        product_id: batchEditProduct.id,
+        liquid_clay_batch_id: batchEditLiquidClay.id,
+        glaze_material_id: batchEditGlaze?.id,
+        quantity: parseInt(batchEditQty) || 1,
+      });
+      setBatchEditProduct(null);
+      setBatchEditLiquidClay(null);
+      setBatchEditGlaze(null);
+      setBatchEditQty('1');
+      setShowBatchEditAddItem(false);
+      // Batch detayını ve maliyet satırlarını yenile
+      const updated = await getProductionBatch(selectedBatch.id);
+      setSelectedBatch(updated);
+      if (updated?.items) {
+        const lines: Record<number, ProductionCostLine[]> = { ...itemCostLines };
+        for (const itm of updated.items) {
+          if (!lines[itm.id]) {
+            lines[itm.id] = await getProductionItemCostLines(itm.id);
+          }
+        }
+        setItemCostLines(lines);
+      }
+      load();
+    } catch (e) {
+      Alert.alert('Hata', 'Kalem eklenemedi');
+    }
   }
 
   async function handleSaveBatchEdit() {
@@ -518,6 +610,66 @@ export default function ProductionScreen() {
                       <Text style={[styles.inlineAddBtnText, { color: Colors.textSecondary }]}>İptal</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {/* Yeni kalem ekleme */}
+                  <View style={[styles.itemsHeader, { marginTop: Spacing.md }]}>
+                    <Text style={styles.fieldLabel}>Ürün Ekle</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowBatchEditAddItem(prev => !prev)}
+                      style={styles.addItemBtn}
+                    >
+                      <Ionicons name={showBatchEditAddItem ? 'chevron-up' : 'add'} size={18} color={Colors.primary} />
+                      <Text style={styles.addItemText}>{showBatchEditAddItem ? 'Kapat' : 'Ekle'}</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {showBatchEditAddItem && (
+                    <Card variant="outlined" style={styles.inlineForm}>
+                      <Text style={styles.inlineLabel}>Ürün</Text>
+                      <TouchableOpacity style={styles.dropdownBtn} onPress={showBatchEditProductPicker}>
+                        <Text style={[styles.dropdownText, !batchEditProduct && styles.dropdownPlaceholder]}>
+                          {batchEditProduct ? `${batchEditProduct.name}  (${batchEditProduct.collection})` : 'Ürün seçin...'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+
+                      <Text style={[styles.inlineLabel, { marginTop: Spacing.sm }]}>Sıvı Çamur Partisi</Text>
+                      <TouchableOpacity style={styles.dropdownBtn} onPress={showBatchEditLiquidClayPicker}>
+                        <Text style={[styles.dropdownText, !batchEditLiquidClay && styles.dropdownPlaceholder]}>
+                          {batchEditLiquidClay
+                            ? `${batchEditLiquidClay.name}  (${(batchEditLiquidClay.available_quantity / 1000).toFixed(1)} kg)`
+                            : 'Çamur partisi seçin...'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+
+                      <Text style={[styles.inlineLabel, { marginTop: Spacing.sm }]}>
+                        Sır  <Text style={styles.optionalLabel}>— opsiyonel</Text>
+                      </Text>
+                      <TouchableOpacity style={styles.dropdownBtn} onPress={showBatchEditGlazePicker}>
+                        <Text style={[styles.dropdownText, !batchEditGlaze && styles.dropdownPlaceholder]}>
+                          {batchEditGlaze
+                            ? `${batchEditGlaze.name}  (₺${batchEditGlaze.cost_per_unit}/${batchEditGlaze.unit})`
+                            : 'Sırsız / Sonra Seçilecek'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={16} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+
+                      <Text style={[styles.inlineLabel, { marginTop: Spacing.sm }]}>Adet</Text>
+                      <View style={styles.inlineRow}>
+                        <TextInput
+                          style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                          value={batchEditQty}
+                          onChangeText={setBatchEditQty}
+                          keyboardType="number-pad"
+                          placeholderTextColor={Colors.textMuted}
+                        />
+                        <TouchableOpacity style={styles.inlineAddBtn} onPress={handleAddItemToBatch}>
+                          <Text style={styles.inlineAddBtnText}>Ekle</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </Card>
+                  )}
                 </Card>
               ) : (
                 <>
@@ -627,7 +779,7 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: Colors.surface },
   toggleText: { ...Typography.bodySmall, color: Colors.textSecondary, fontWeight: '500' },
   toggleTextActive: { color: Colors.text, fontWeight: '600' },
-  list: { padding: Spacing.md, gap: Spacing.sm, paddingBottom: Spacing.xl },
+  list: { padding: Spacing.md, gap: Spacing.sm, paddingBottom: Spacing.xl, flexGrow: 1 },
 
   itemCard: { gap: Spacing.sm },
   itemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

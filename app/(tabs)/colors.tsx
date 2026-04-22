@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   Alert, TextInput, Modal, ScrollView, KeyboardAvoidingView, Platform,
@@ -10,6 +10,7 @@ import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/t
 import { Card } from '../../src/components/Card';
 import { EmptyState } from '../../src/components/EmptyState';
 import { getColorRecipes, addColorRecipe, updateColorRecipe, deleteColorRecipe, getColorRecipe } from '../../src/services/colors';
+import { useFocusEffect } from 'expo-router';
 import { getMaterials } from '../../src/services/materials';
 import { ColorRecipe, ColorRecipeComponent, Material } from '../../src/types';
 
@@ -42,7 +43,7 @@ export default function ColorsScreen() {
     setMaterials(m);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   async function openDetail(recipe: ColorRecipe) {
     const full = await getColorRecipe(recipe.id);

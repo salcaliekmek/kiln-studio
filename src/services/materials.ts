@@ -113,11 +113,13 @@ export async function getMaterialConsumptions(
   }));
 
   // 2. Pigment tüketimi — renk reçetesi ile sıvı çamur üretimi
+  // Formül: (lcb.clay_quantity / cr.base_clay_quantity) * crc.quantity
   const pigmentRows = await db.getAllAsync<{ id: number; date: string; source: string; qty: number }>(
     `SELECT lcb.id, DATE(lcb.created_at) as date, lcb.name as source,
-            ROUND(crc.quantity * lcb.clay_quantity / 1000.0, 2) as qty
+            ROUND(crc.quantity * lcb.clay_quantity / cr.base_clay_quantity, 2) as qty
      FROM liquid_clay_batches lcb
      JOIN color_recipe_components crc ON crc.color_recipe_id = lcb.color_recipe_id
+     JOIN color_recipes cr ON cr.id = lcb.color_recipe_id
      WHERE crc.material_id = ?
      ORDER BY lcb.created_at DESC`,
     [materialId]
@@ -132,23 +134,39 @@ export async function getMaterialConsumptions(
   }));
 
   // 3. Sır tüketimi — üretim partileri
-  const glazeRows = await db.getAllAsync<{ id: number; date: string; source: string; qty: number }>(
-    `SELECT pi.id, pb.date_started as date, p.name as source, pi.quantity as qty
+  // Gramaj: ağırlık profilindeki sır tutma (post_glaze - pre_glaze) × adet
+  const glazeRows = await db.getAllAsync<{
+    id: number; date: string; source: string; piece_qty: number;
+    pre_glaze_gr: number | null; post_glaze_gr: number | null;
+  }>(
+    `SELECT pi.id, pb.date_started as date, p.name as source,
+            pi.quantity as piece_qty,
+            pw_pre.weight_gr  as pre_glaze_gr,
+            pw_post.weight_gr as post_glaze_gr
      FROM production_items pi
      JOIN products p ON p.id = pi.product_id
      JOIN production_batches pb ON pb.id = pi.batch_id
+     LEFT JOIN product_weights pw_pre  ON pw_pre.product_id  = pi.product_id AND pw_pre.stage  = 'pre_glaze'
+     LEFT JOIN product_weights pw_post ON pw_post.product_id = pi.product_id AND pw_post.stage = 'post_glaze'
      WHERE pi.glaze_material_id = ?
      ORDER BY pb.date_started DESC`,
     [materialId]
   );
-  glazeRows.forEach(r => results.push({
-    id: `glaze_${r.id}`,
-    date: r.date,
-    source: r.source,
-    quantity: r.qty,
-    unit: 'adet',
-    source_type: 'production',
-  }));
+  glazeRows.forEach(r => {
+    const uptakeGr = (r.pre_glaze_gr != null && r.post_glaze_gr != null && r.post_glaze_gr > r.pre_glaze_gr)
+      ? r.post_glaze_gr - r.pre_glaze_gr
+      : null;
+    const qty = uptakeGr != null ? uptakeGr * r.piece_qty : r.piece_qty;
+    const displayUnit = uptakeGr != null ? (unit === 'kg' ? 'kg' : 'gr') : 'adet';
+    results.push({
+      id: `glaze_${r.id}`,
+      date: r.date,
+      source: r.source,
+      quantity: uptakeGr != null && unit === 'kg' ? qty / 1000 : qty,
+      unit: displayUnit,
+      source_type: 'production',
+    });
+  });
 
   // Tarihe göre azalan sırala
   results.sort((a, b) => b.date.localeCompare(a.date));

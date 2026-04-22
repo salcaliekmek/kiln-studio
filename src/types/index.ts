@@ -233,8 +233,10 @@ export type StockStage = 'bisque' | 'semi' | 'finished';
 export interface StockEntry {
   id: number;
   product_id: number;
+  liquid_clay_batch_id: number;         // 0 = manuel giriş / renksiz
   product_name?: string;
   collection?: ProductCollection;
+  liquid_clay_batch_name?: string | null;
   quantity: number;
   stage: StockStage;
   updated_at: string;

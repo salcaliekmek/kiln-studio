@@ -14,7 +14,7 @@ export interface FiringCostDetail {
 
 const FIRING_STAGE_MAP: Record<FiringType, { from: ProductionStage; to: ProductionStage }> = {
   bisque: { from: 'bisque',        to: 'bisque_done' },
-  glaze:  { from: 'glaze_firing',  to: 'glaze_done'  },
+  glaze:  { from: 'glaze_firing',  to: 'decal'       },
   decal:  { from: 'decal_firing',  to: 'sanding'     },
 };
 
@@ -152,6 +152,25 @@ export async function updateKilnFiringStatus(id: number, status: KilnStatus): Pr
       await updateProductionItemStage(item.production_item_id, to);
     }
   }
+}
+
+/**
+ * Bir aydaki her gün için planlanan fırın pişirim sayısını döndürür.
+ * { 'YYYY-MM-DD': count } formatında.
+ */
+export async function getKilnFiringCountsForMonth(
+  year: number,
+  month: number,
+): Promise<Record<string, number>> {
+  const db = await getDatabase();
+  const prefix = `${year}-${String(month).padStart(2, '0')}`;
+  const rows = await db.getAllAsync<{ date: string; count: number }>(
+    `SELECT date, COUNT(*) as count FROM kiln_firings WHERE date LIKE ? GROUP BY date`,
+    [`${prefix}-%`],
+  );
+  const result: Record<string, number> = {};
+  for (const row of rows) result[row.date] = row.count;
+  return result;
 }
 
 /**

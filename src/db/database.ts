@@ -245,6 +245,50 @@ async function initializeSchema(db: SQLite.SQLiteDatabase): Promise<void> {
     }
   } catch (_) {}
 
+  // Üretim planlama takvimi
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS production_plans (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      production_item_id   INTEGER NOT NULL REFERENCES production_items(id) ON DELETE CASCADE,
+      planned_date         TEXT    NOT NULL,
+      stage                TEXT    NOT NULL,
+      quantity             INTEGER NOT NULL,
+      notes                TEXT,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+  `);
+
+  // Migration: stock tablosuna liquid_clay_batch_id ekle — UNIQUE constraint değişiyor
+  try {
+    const stockSql = await db.getFirstAsync<{ sql: string }>(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='stock'`
+    );
+    if (stockSql && !stockSql.sql.includes('liquid_clay_batch_id')) {
+      await db.execAsync(`ALTER TABLE stock RENAME TO stock_old_v3`);
+      await db.execAsync(`
+        CREATE TABLE stock (
+          id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id           INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          liquid_clay_batch_id INTEGER NOT NULL DEFAULT 0,
+          quantity             INTEGER NOT NULL DEFAULT 0,
+          stage                TEXT    NOT NULL CHECK(stage IN ('bisque','semi','finished')),
+          updated_at           TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+          UNIQUE(product_id, stage, liquid_clay_batch_id)
+        )
+      `);
+      await db.execAsync(`
+        INSERT OR IGNORE INTO stock (product_id, liquid_clay_batch_id, quantity, stage, updated_at)
+        SELECT product_id, 0, quantity, stage, updated_at FROM stock_old_v3
+      `);
+      await db.execAsync(`DROP TABLE stock_old_v3`);
+    }
+  } catch (_) {}
+
+  // Migration: production_plans tablosuna completed_at ekle
+  try {
+    await db.execAsync(`ALTER TABLE production_plans ADD COLUMN completed_at TEXT;`);
+  } catch (_) {}
+
   // Ürün ağırlık profili tablosu
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS product_weights (

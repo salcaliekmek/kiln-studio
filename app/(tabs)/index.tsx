@@ -42,7 +42,7 @@ function MetricRow({ icon, label, value, color, onPress, alert, last }: MetricRo
 
 const ALL_STAGES: ProductionStage[] = [
   'casting', 'drying', 'bisque', 'bisque_done',
-  'glazing', 'glaze_firing', 'glaze_done',
+  'glazing', 'glaze_firing',
   'decal', 'decal_firing', 'sanding', 'finished',
 ];
 
@@ -53,7 +53,6 @@ const STAGE_PROCESS_INFO: Partial<Record<ProductionStage, { title: string; desc:
   bisque_done: { title: 'Bisküvi Bitti', desc: 'Zımparalama' },
   glazing: { title: 'Sırlama', desc: 'Düzeltme, iç sırlama' },
   glaze_firing: { title: 'Ana Pişirim', desc: '2. pişirim – sır işlenir' },
-  glaze_done: { title: 'Sır Bitti', desc: 'Sır tamamlandı' },
   decal: { title: 'Dekal', desc: 'Logo baskısı' },
   decal_firing: { title: 'Dekal Pişirimi', desc: 'Düşük derecede pişirim' },
   sanding: { title: 'Son Zımparalama', desc: 'Son kontrol' },

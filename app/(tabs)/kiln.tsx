@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, SectionList, TouchableOpacity,
   Alert, TextInput, Modal, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { Colors, Spacing, Typography, BorderRadius } from '../../src/constants/theme';
 import { Card } from '../../src/components/Card';
 import { Badge } from '../../src/components/Badge';
@@ -100,7 +101,7 @@ export default function KilnScreen() {
     setColorRecipes(cr);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function setFiringType(type: FiringType) {
     setForm(f => ({ ...f, firing_type: type, temperature: String(DEFAULT_TEMPS[type]) }));
