@@ -10,10 +10,13 @@ import { Card } from '../../src/components/Card';
 import {
   AnalyticsPeriod, AnalyticsSummary, MonthlySpending, SpendingByType,
   TopMaterial, StageDistribution, StockByCollection, StockByStageRow,
+  ElectricityStats, MonthlyElectricity, ElectricityByFiringType,
   getAnalyticsSummary, getMonthlySpending, getSpendingByType,
   getTopMaterials, getStageDistribution, getStockByCollection,
   getStockByStageBreakdown,
+  getElectricityStats, getMonthlyElectricityCost, getElectricityByFiringType,
 } from '../../src/services/analytics';
+import { router } from 'expo-router';
 
 // ─── Yardımcı formatlayıcılar ─────────────────────────────────────────────
 
@@ -59,7 +62,17 @@ function KpiCard({
 
 // ─── Dikey Bar Grafik ─────────────────────────────────────────────────────
 
-function BarChart({ data, color }: { data: MonthlySpending[]; color: string }) {
+function BarChart({
+  data,
+  color,
+  subData,
+  subSuffix,
+}: {
+  data: { label: string; total: number }[];
+  color: string;
+  subData?: number[];
+  subSuffix?: string;
+}) {
   if (!data.length) return <EmptyChart />;
   const max = Math.max(...data.map(d => d.total), 1);
   return (
@@ -67,6 +80,7 @@ function BarChart({ data, color }: { data: MonthlySpending[]; color: string }) {
       {data.map((item, i) => {
         const pct = item.total / max;
         const height = Math.max(pct * 120, item.total > 0 ? 4 : 2);
+        const sub = subData?.[i];
         return (
           <View key={i} style={styles.barGroup}>
             <Text style={styles.barTopLabel}>{item.total > 0 ? fmt(item.total) : ''}</Text>
@@ -79,6 +93,11 @@ function BarChart({ data, color }: { data: MonthlySpending[]; color: string }) {
               />
             </View>
             <Text style={styles.barBotLabel}>{item.label}</Text>
+            {sub !== undefined && sub > 0 && (
+              <Text style={[styles.barBotLabel, { color: Colors.textMuted }]}>
+                {sub.toFixed(0)}{subSuffix ?? ''}
+              </Text>
+            )}
           </View>
         );
       })}
@@ -146,10 +165,13 @@ export default function AnalyticsScreen() {
   const [stages, setStages] = useState<StageDistribution[]>([]);
   const [collections, setCollections] = useState<StockByCollection[]>([]);
   const [stockStages, setStockStages] = useState<StockByStageRow[]>([]);
+  const [elecStats, setElecStats] = useState<ElectricityStats | null>(null);
+  const [elecMonthly, setElecMonthly] = useState<MonthlyElectricity[]>([]);
+  const [elecByType, setElecByType] = useState<ElectricityByFiringType[]>([]);
 
   const load = useCallback(async (p: AnalyticsPeriod) => {
     try {
-      const [s, m, bt, tm, st, col, ss] = await Promise.all([
+      const [s, m, bt, tm, st, col, ss, es, em, et] = await Promise.all([
         getAnalyticsSummary(p),
         getMonthlySpending(6),
         getSpendingByType(p),
@@ -157,6 +179,9 @@ export default function AnalyticsScreen() {
         getStageDistribution(),
         getStockByCollection(),
         getStockByStageBreakdown(),
+        getElectricityStats(p),
+        getMonthlyElectricityCost(6),
+        getElectricityByFiringType(p),
       ]);
       setSummary(s);
       setMonthly(m);
@@ -165,6 +190,9 @@ export default function AnalyticsScreen() {
       setStages(st);
       setCollections(col);
       setStockStages(ss);
+      setElecStats(es);
+      setElecMonthly(em);
+      setElecByType(et);
     } catch (e) {
       console.error(e);
     }
@@ -252,7 +280,10 @@ export default function AnalyticsScreen() {
         <SectionTitle icon="bar-chart" title="Aylık Hammadde Harcaması" />
         <Card style={styles.card}>
           <Text style={styles.cardNote}>Son 6 ay</Text>
-          <BarChart data={monthly} color={Colors.accent} />
+          <BarChart
+            data={monthly.map(m => ({ label: m.label, total: m.total }))}
+            color={Colors.accent}
+          />
         </Card>
 
         {/* ── Türe Göre Harcama ── */}
@@ -295,6 +326,107 @@ export default function AnalyticsScreen() {
                   </View>
                 );
               })}
+            </Card>
+          </>
+        )}
+
+        {/* ── Elektrik Harcaması ── */}
+        <SectionTitle icon="flash" title="Elektrik Harcaması" />
+
+        {/* Fiyat girilmemiş uyarısı */}
+        {elecStats && !elecStats.has_price_data && (
+          <TouchableOpacity
+            style={styles.warningCard}
+            onPress={() => router.push('/(tabs)/profile')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="warning-outline" size={18} color={Colors.warning} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.warningTitle}>Elektrik fiyatı girilmemiş</Text>
+              <Text style={styles.warningBody}>
+                Profil → Elektrik Fiyatları bölümünden aylık ₺/kWh değerini girin.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
+          </TouchableOpacity>
+        )}
+
+        {/* Eksik veri uyarısı (fiyat var ama bazı pişirimlerde fırın/süre yok) */}
+        {elecStats && elecStats.has_price_data && elecStats.firings_without_data > 0 && (
+          <View style={styles.infoCard}>
+            <Ionicons name="information-circle-outline" size={16} color={Colors.info} />
+            <Text style={styles.infoText}>
+              {elecStats.firings_without_data} pişirimde fırın veya süre eksik — bunlar hesaba katılmadı.
+            </Text>
+          </View>
+        )}
+
+        {/* Elektrik KPI çifti */}
+        {elecStats && (
+          <View style={styles.kpiRow}>
+            <View style={[styles.kpiCardWide, { borderLeftColor: '#E67E22' }]}>
+              <View style={[styles.kpiIcon, { backgroundColor: '#E67E2218' }]}>
+                <Ionicons name="flash" size={18} color="#E67E22" />
+              </View>
+              <Text style={styles.kpiValue}>{fmtFull(elecStats.total_cost)}</Text>
+              <Text style={styles.kpiLabel}>Toplam Elektrik Maliyeti</Text>
+              {elecStats.firing_count > 0 && (
+                <Text style={styles.kpiSub}>
+                  Ort. {fmtFull(elecStats.avg_cost_per_firing)} / pişirim
+                </Text>
+              )}
+            </View>
+            <View style={[styles.kpiCardWide, { borderLeftColor: '#8E44AD' }]}>
+              <View style={[styles.kpiIcon, { backgroundColor: '#8E44AD18' }]}>
+                <Ionicons name="speedometer-outline" size={18} color="#8E44AD" />
+              </View>
+              <Text style={styles.kpiValue}>
+                {elecStats.total_kwh.toLocaleString('tr-TR', { maximumFractionDigits: 1 })} kWh
+              </Text>
+              <Text style={styles.kpiLabel}>Toplam Enerji Tüketimi</Text>
+              <Text style={styles.kpiSub}>{elecStats.firing_count} pişirim hesaplandı</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Aylık elektrik bar grafiği */}
+        <Card style={styles.card}>
+          <Text style={styles.cardNote}>Son 6 ay — tamamlanan pişirimler</Text>
+          {elecMonthly.length === 0 ? (
+            <EmptyChart />
+          ) : (
+            <BarChart
+              data={elecMonthly.map(e => ({ label: e.label, total: e.cost }))}
+              color="#E67E22"
+              subData={elecMonthly.map(e => e.kwh)}
+              subSuffix=" kWh"
+            />
+          )}
+        </Card>
+
+        {/* Pişirim türüne göre elektrik dağılımı */}
+        {elecByType.length > 0 && (
+          <>
+            <SectionTitle icon="flame" title="Pişirim Türüne Göre Elektrik" />
+            <Card style={styles.card}>
+              <View style={styles.hbarList}>
+                {elecByType.map((r, i) => {
+                  const totalCost = elecByType.reduce((s, x) => s + x.cost, 0);
+                  return (
+                    <View key={i} style={styles.elecTypeRow}>
+                      <HBar
+                        label={`${r.label}  (${r.firing_count} pişirim)`}
+                        value={r.cost}
+                        total={totalCost}
+                        color={r.color}
+                      />
+                      <Text style={[styles.elecKwh, { color: r.color }]}>
+                        {r.kwh.toLocaleString('tr-TR', { maximumFractionDigits: 1 })} kWh
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
             </Card>
           </>
         )}
@@ -549,6 +681,56 @@ const styles = StyleSheet.create({
   rankText: { ...Typography.caption, fontWeight: '800', fontSize: 12 },
   topMatName: { ...Typography.body, color: Colors.text, flex: 1 },
   topMatCost: { ...Typography.body, fontWeight: '700', fontSize: 14 },
+
+  // Elektrik KPI satırı
+  kpiRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  kpiCardWide: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderLeftWidth: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 3,
+  },
+
+  // Uyarı kartı (fiyat yok)
+  warningCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.warning + '12',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.warning + '40',
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  warningTitle: { ...Typography.bodySmall, fontWeight: '600', color: Colors.warning },
+  warningBody:  { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
+
+  // Bilgi kartı (eksik veri)
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.info + '10',
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.info + '30',
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  infoText: { ...Typography.caption, color: Colors.info, flex: 1 },
+
+  // Pişirim türü satırı
+  elecTypeRow: { gap: 4 },
+  elecKwh: { ...Typography.caption, fontWeight: '600', textAlign: 'right', marginTop: -2 },
 
   // Boş
   emptyChart: {
