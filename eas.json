@@ -23,5 +23,14 @@
         "simulator": false
       }
     }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "ercmntkll@gmail.com",
+        "ascAppId": "6763265355",
+        "appleTeamId": "834466BUXT"
+      }
+    }
   }
 }
