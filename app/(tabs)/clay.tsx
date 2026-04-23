@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, TextInput, Modal, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
+  Alert, TextInput, Modal, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, DimensionValue,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -191,7 +191,7 @@ export default function ClayScreen() {
 
               {/* İnce progress bar */}
               <View style={styles.progressBg}>
-                <View style={[styles.progressFill, { width: `${pct}%` as any, backgroundColor: barColor }]} />
+                <View style={[styles.progressFill, { width: `${pct}%` as DimensionValue, backgroundColor: barColor }]} />
               </View>
 
               {/* Alt bilgi */}
@@ -423,7 +423,7 @@ export default function ClayScreen() {
                 return (
                   <View style={{ marginTop: Spacing.md, gap: 6 }}>
                     <View style={styles.progressBg}>
-                      <View style={[styles.progressFill, { width: `${pct}%` as any, backgroundColor: barColor }]} />
+                      <View style={[styles.progressFill, { width: `${pct}%` as DimensionValue, backgroundColor: barColor }]} />
                     </View>
                     <Text style={[styles.batchMeta, { textAlign: 'right' }]}>
                       <Text style={{ color: barColor, fontWeight: '700' }}>%{pct} kaldı</Text>

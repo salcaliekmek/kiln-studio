@@ -324,14 +324,14 @@ export default function KilnScreen() {
         const active = firings.filter(f => f.status !== 'done');
         const done   = firings.filter(f => f.status === 'done');
 
-        const sections: { key: string; title: string; type?: FiringType; icon: string; data: KilnFiring[] }[] = [
-          { key: 'bisque', title: 'Bisküvi Pişirimleri', type: 'bisque' as FiringType, icon: 'flame',
+        const sections: { key: string; title: string; type?: FiringType; icon: keyof typeof Ionicons.glyphMap; data: KilnFiring[] }[] = [
+          { key: 'bisque', title: 'Bisküvi Pişirimleri', type: 'bisque' as FiringType, icon: 'flame' as keyof typeof Ionicons.glyphMap,
             data: active.filter(f => f.firing_type === 'bisque') },
-          { key: 'glaze',  title: 'Sır Pişirimleri',    type: 'glaze'  as FiringType, icon: 'flame',
+          { key: 'glaze',  title: 'Sır Pişirimleri',    type: 'glaze'  as FiringType, icon: 'flame' as keyof typeof Ionicons.glyphMap,
             data: active.filter(f => f.firing_type === 'glaze') },
-          { key: 'decal',  title: 'Dekal Pişirimleri',  type: 'decal'  as FiringType, icon: 'flame',
+          { key: 'decal',  title: 'Dekal Pişirimleri',  type: 'decal'  as FiringType, icon: 'flame' as keyof typeof Ionicons.glyphMap,
             data: active.filter(f => f.firing_type === 'decal') },
-          { key: 'done',   title: 'Tamamlananlar',       icon: 'checkmark-circle',
+          { key: 'done',   title: 'Tamamlananlar',       icon: 'checkmark-circle' as keyof typeof Ionicons.glyphMap,
             data: showDone ? done : [] },
         ].filter(s => s.key === 'done' ? done.length > 0 : s.data.length > 0);
 
@@ -352,7 +352,7 @@ export default function KilnScreen() {
               >
                 <View style={styles.sectionHeaderLeft}>
                   <Ionicons
-                    name={section.icon as any}
+                    name={section.icon}
                     size={14}
                     color={section.type ? FIRING_COLORS[section.type] : Colors.success}
                   />

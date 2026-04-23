@@ -193,8 +193,8 @@ export default function AnalyticsScreen() {
       setElecStats(es);
       setElecMonthly(em);
       setElecByType(et);
-    } catch (e) {
-      console.error(e);
+    } catch (_) {
+      // Sessiz hata — ekran boş kalır
     }
   }, []);
 

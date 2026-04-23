@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, TextInput, Modal, ScrollView, KeyboardAvoidingView, Platform,
+  Alert, TextInput, Modal, ScrollView, KeyboardAvoidingView, Platform, DimensionValue,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -405,7 +405,7 @@ export default function ProductionScreen() {
                 <View style={styles.batchProgressBg}>
                   <View style={[
                     styles.batchProgressFill,
-                    { width: `${pct}%` as any },
+                    { width: `${pct}%` as DimensionValue },
                     isDone && { backgroundColor: Colors.success },
                   ]} />
                 </View>

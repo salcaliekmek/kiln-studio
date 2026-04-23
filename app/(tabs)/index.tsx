@@ -94,8 +94,8 @@ export default function DashboardScreen() {
       setStudioName(profile.studio_name);
       setOwnerName(profile.owner_name);
       setActiveStages(profile.active_stages);
-    } catch (e) {
-      console.error(e);
+    } catch (_) {
+      // Sessiz hata — kullanıcıya boş ekran gösterilir
     }
   }, []);
 
