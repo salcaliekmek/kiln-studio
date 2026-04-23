@@ -70,6 +70,13 @@ export default function TabLayout() {
           tabBarIcon: ({ focused }) => <TabIcon name="cube" focused={focused} />,
         }}
       />
+      <Tabs.Screen
+        name="analytics"
+        options={{
+          title: 'Analiz',
+          tabBarIcon: ({ focused }) => <TabIcon name="analytics" focused={focused} />,
+        }}
+      />
       {/* Gizli ekranlar – tab bar'da görünmez, navigation ile erişilir */}
       <Tabs.Screen name="materials" options={{ href: null }} />
       <Tabs.Screen name="products" options={{ href: null }} />
