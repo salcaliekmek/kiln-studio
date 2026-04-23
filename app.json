@@ -15,10 +15,11 @@
     },
     "ios": {
       "bundleIdentifier": "net.onnidesign.studio",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "supportsTablet": false,
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "Bu uygulama kullanıcı takibi yapmamaktadır."
+        "NSUserTrackingUsageDescription": "Bu uygulama kullanıcı takibi yapmamaktadır.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
